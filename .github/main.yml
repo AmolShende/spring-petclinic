@@ -1,0 +1,58 @@
+name: Docker CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+
+  build-and-deploy:
+
+    runs-on: self-hosted
+
+    steps:
+
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '21'
+
+    - name: Build Maven Project
+      run: mvn clean package
+
+    - name: Docker Login
+      run: |
+        echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+    - name: Build Docker Image
+      run: |
+        docker build -t spring-petclinic .
+
+    - name: Tag Docker Image
+      run: |
+        docker tag spring-petclinic ${{ secrets.DOCKER_USERNAME }}/spring-petclinic:latest
+
+    - name: Push Docker Image
+      run: |
+        docker push ${{ secrets.DOCKER_USERNAME }}/spring-petclinic:latest
+
+    - name: Deploy on Docker Server
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << EOF
+
+        docker stop spring-petclinic || true
+        docker rm spring-petclinic || true
+
+        docker pull ${{ secrets.DOCKER_USERNAME }}/spring-petclinic:latest
+
+        docker run -d \
+          --name spring-petclinic \
+          -p 8080:8080 \
+          ${{ secrets.DOCKER_USERNAME }}/spring-petclinic:latest
+
+        EOF
